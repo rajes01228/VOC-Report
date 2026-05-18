@@ -1,2 +1,0 @@
-# VOC-Report
-VOC Report
