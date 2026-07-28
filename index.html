@@ -1,35 +1,469 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pl">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VOC Roadmap Control Center</title>
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <!-- React and ReactDOM CDNs -->
-  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <!-- Babel CDN (Compiles JSX in the browser) -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gantt Dashboard - Live Replatforming Plan</title>
+    <style>
+        /* Reset i baza */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; color: #1e293b; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        
+        /* Pasek nawigacji górnej */
+        header { background-color: #0f172a; color: white; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); flex-shrink: 0; z-index: 50; position: relative; }
+        header h1 { font-size: 1.25rem; font-weight: 700; margin-bottom: 4px; }
+        header p { font-size: 0.85rem; color: #94a3b8; }
+        
+        .btn-export { background-color: #10b981; color: white; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; transition: background-color 0.2s; }
+        .btn-export:hover { background-color: #059669; }
+        
+        /* Główny kontener tabeli z zamrożonymi nagłówkami */
+        .table-wrapper { flex: 1; overflow: auto; background-color: white; position: relative; }
+        table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 1200px; }
+        
+        th, td { border-bottom: 1px solid #e2e8f0; border-right: 1px solid #e2e8f0; padding: 10px 12px; text-align: center; font-size: 0.85rem; }
+        
+        /* Zamrożenie nagłówka tabeli (T1-T16) */
+        thead th { position: sticky; top: 0; background-color: #1e293b; color: white; z-index: 20; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        
+        /* Zamrożenie pierwszej kolumny po lewej */
+        tbody td:first-child, thead th:first-child { position: sticky; left: 0; z-index: 30; background-color: white; text-align: left; box-shadow: 2px 0 5px rgba(0,0,0,0.05); border-right: 2px solid #cbd5e1; }
+        thead th:first-child { z-index: 40; background-color: #0f172a; }
+
+        /* Klasy wierszy hierarchii projektu */
+        .row-ws td { background-color: #e2e8f0 !important; font-weight: 700; color: #0f172a; font-size: 0.95rem; }
+        .row-act td { background-color: #f1f5f9 !important; font-weight: 600; color: #334155; padding-left: 24px !important; }
+        .row-task { transition: background-color 0.2s; }
+        .row-task:hover td:first-child { background-color: #f8fafc !important; cursor: pointer; }
+        
+        /* Komórka Zadania */
+        .task-name-cell { padding-left: 48px !important; display: flex; justify-content: space-between; align-items: center; color: #475569; }
+        .progress-label { font-weight: bold; color: #3b82f6; width: 40px; text-align: right; font-size: 0.8rem; }
+        
+        /* Paski wykresu Gantta */
+        .gantt-cell { padding: 4px !important; background-color: #f8fafc; }
+        .gantt-bar-wrapper { width: 100%; height: 22px; background-color: #dbeafe; border-radius: 4px; position: relative; overflow: hidden; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .gantt-bar-fill { height: 100%; position: absolute; left: 0; top: 0; transition: width 0.3s ease, background-color 0.3s ease; }
+        .gantt-bar-wrapper:hover { filter: brightness(0.95); }
+        
+        /* Puste komórki osi czasu */
+        .empty-cell { background-color: #ffffff; border-right: 1px dashed #e2e8f0; }
+
+        /* Znacznik Ryzyka */
+        .risk-badge { background-color: #fee2e2; color: #dc2626; font-size: 0.65rem; padding: 2px 6px; border-radius: 12px; font-weight: bold; margin-left: 8px; display: none; border: 1px solid #fca5a5; }
+        .has-risk { display: inline-block; }
+
+        /* Panel Boczny (Zarządzanie RAID) */
+        .overlay { position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.4); z-index: 60; display: none; opacity: 0; transition: opacity 0.3s; backdrop-filter: blur(2px); }
+        .overlay.show { display: block; opacity: 1; }
+        
+        .panel { position: fixed; top: 0; right: -450px; width: 400px; height: 100vh; background-color: white; z-index: 70; box-shadow: -5px 0 25px rgba(0,0,0,0.15); transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: flex; flex-direction: column; border-left: 1px solid #e2e8f0; }
+        .panel.open { right: 0; }
+        
+        .panel-header { padding: 20px 24px; border-b: 1px solid #e2e8f0; background-color: #f8fafc; display: flex; justify-content: space-between; align-items: center; }
+        .panel-header h2 { font-size: 1.1rem; color: #0f172a; display: flex; align-items: center; gap: 8px; }
+        .btn-close { background: none; border: none; font-size: 1.5rem; color: #64748b; cursor: pointer; transition: color 0.2s; line-height: 1; }
+        .btn-close:hover { color: #0f172a; }
+        
+        .panel-content { flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 20px; }
+        .form-group label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b; margin-bottom: 8px; }
+        .task-display { font-size: 1rem; font-weight: 600; color: #0f172a; padding: 12px; background-color: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 6px; }
+        
+        .slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .slider-header span { font-size: 1.25rem; font-weight: bold; color: #3b82f6; }
+        input[type="range"] { width: 100%; height: 6px; background: #e2e8f0; border-radius: 3px; outline: none; -webkit-appearance: none; cursor: pointer; margin-top: 8px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #3b82f6; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
+        
+        textarea { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-family: inherit; font-size: 0.9rem; resize: vertical; min-height: 80px; outline: none; transition: border-color 0.2s; }
+        textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+        .risk-input { background-color: #fef2f2; border-color: #fecaca; }
+        .risk-input:focus { border-color: #ef4444; box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1); }
+        
+        .panel-footer { padding: 20px 24px; border-t: 1px solid #e2e8f0; background-color: #f8fafc; display: flex; justify-content: flex-end; gap: 12px; }
+        .btn { padding: 10px 16px; border-radius: 6px; font-weight: 600; font-size: 0.9rem; cursor: pointer; transition: all 0.2s; }
+        .btn-secondary { background-color: white; border: 1px solid #cbd5e1; color: #475569; }
+        .btn-secondary:hover { background-color: #f1f5f9; }
+        .btn-primary { background-color: #3b82f6; border: 1px solid #2563eb; color: white; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+        .btn-primary:hover { background-color: #2563eb; }
+        
+        /* Powiadomienie (Toast) */
+        .toast { position: fixed; bottom: 24px; right: 24px; background-color: #1e293b; color: white; padding: 12px 24px; border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); transform: translateY(100px); opacity: 0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); z-index: 100; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
+        .toast.show { transform: translateY(0); opacity: 1; }
+        
+        /* Kontener błędów systemowych (fallback) */
+        #error-container { display: none; padding: 20px; margin: 20px; background: #fee2e2; border: 2px solid #ef4444; border-radius: 8px; color: #991b1b; font-family: monospace; }
+    </style>
 </head>
-<body class="bg-slate-50">
+<body>
 
-  <!-- React Entry Point Container -->
-  <div id="root"></div>
+    <header>
+        <div>
+            <h1>Live Replatforming Plan V1.0</h1>
+            <p>Struktura: Workstream &rarr; Activity &rarr; Task | Oś czasu: T1 - T16</p>
+        </div>
+        <button class="btn-export" id="btn-export">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            Eksportuj CSV
+        </button>
+    </header>
 
-  <!-- Your Dashboard React Code -->
-  <script type="text/babel">
-    // 1. COPY & PASTE YOUR ENTIRE App.jsx CODE HERE 
-    // (Ensure you replace any 'import' or 'export' lines at the very top/bottom, 
-    // as the browser CDNs handle React imports globally!)
-    
-    const { useState, useMemo } = React;
+    <div id="error-container"></div>
 
-    // ... [Paste the Icon component and App component code from App.jsx here] ...
+    <div class="table-wrapper">
+        <table id="gantt-table">
+            <thead>
+                <tr id="gantt-header">
+                    <th style="min-width: 400px;">Struktura Projektu (Drzewo Zadań)</th>
+                    <!-- Tygodnie wygenerują się tu bezpiecznie przez JS -->
+                </tr>
+            </thead>
+            <tbody id="gantt-body">
+                <!-- Wiersze projektów -->
+            </tbody>
+        </table>
+    </div>
 
-    // 2. Render the App component into the root div
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
+    <div class="overlay" id="panel-overlay"></div>
+    <div class="panel" id="side-panel">
+        <div class="panel-header">
+            <h2>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                Aktualizacja Zadania
+            </h2>
+            <button class="btn-close" id="btn-close-header">&times;</button>
+        </div>
+        <div class="panel-content">
+            <input type="hidden" id="task-id-input">
+            
+            <div class="form-group">
+                <label>Nazwa Zadania</label>
+                <div class="task-display" id="task-name-display">Wybierz zadanie...</div>
+            </div>
+
+            <div class="form-group">
+                <div class="slider-header">
+                    <label style="margin: 0;">Postęp Realizacji</label>
+                    <span id="task-progress-value">0%</span>
+                </div>
+                <input type="range" id="task-progress-input" min="0" max="100" step="5" value="0">
+            </div>
+
+            <div class="form-group">
+                <label style="color: #dc2626;">Zidentyfikowane Ryzyka (RAID)</label>
+                <textarea class="risk-input" id="task-risks-input" placeholder="Opisz powody opóźnień lub potencjalne zagrożenia..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label style="color: #8b5cf6;">Zależności (Dependencies)</label>
+                <textarea id="task-deps-input" placeholder="Czego brakuje by ruszyć dalej? Od jakiego zadania to zależy?"></textarea>
+            </div>
+        </div>
+        <div class="panel-footer">
+            <button class="btn btn-secondary" id="btn-cancel">Anuluj</button>
+            <button class="btn btn-primary" id="btn-save">Zapisz status</button>
+        </div>
+    </div>
+
+    <!-- Powiadomienie -->
+    <div class="toast" id="toast-msg">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+        <span>Zapisano pomyślnie.</span>
+    </div>
+
+    <script>
+        // Słownik danych inicjalnych (Odzwierciedlenie pliku CSV V1.0)
+        const projectData = [
+            {
+                workstream: "1. Core Platform Replatforming",
+                activities: [
+                    {
+                        activity: "1.1 Discovery & Requirements",
+                        tasks: [
+                            { id: "t1", name: "Stakeholder Interviews", start: 1, end: 3, progress: 100, risks: "", deps: "" },
+                            { id: "t2", name: "Define As-Is Architecture", start: 2, end: 4, progress: 65, risks: "Brak dostępu do archiwum zabezpieczeń (Security).", deps: "Wymaga zakończenia t1" },
+                            { id: "t3", name: "To-Be Architecture Sign-off", start: 4, end: 5, progress: 0, risks: "", deps: "t2" }
+                        ]
+                    },
+                    {
+                        activity: "1.2 Infrastructure Setup",
+                        tasks: [
+                            { id: "t4", name: "Cloud Environment Provisioning", start: 5, end: 7, progress: 10, risks: "Potencjalne opóźnienia w autoryzacji chmury.", deps: "" },
+                            { id: "t5", name: "CI/CD Pipeline Configurations", start: 6, end: 8, progress: 0, risks: "", deps: "t4" }
+                        ]
+                    }
+                ]
+            },
+            {
+                workstream: "2. Common VOC Implementation",
+                activities: [
+                    {
+                        activity: "2.1 Survey Design & Localization",
+                        tasks: [
+                            { id: "t6", name: "Drafting Base Questions", start: 3, end: 6, progress: 100, risks: "", deps: "" },
+                            { id: "t7", name: "Translations (APAC / EMEA)", start: 5, end: 9, progress: 30, risks: "Opóźnienia agencji tłumaczeniowej na rynek JP.", deps: "t6" }
+                        ]
+                    },
+                    {
+                        activity: "2.2 Technical Integration",
+                        tasks: [
+                            { id: "t8", name: "API Gateway Configuration", start: 8, end: 11, progress: 0, risks: "", deps: "t5" },
+                            { id: "t9", name: "End-to-End System Testing (UAT)", start: 12, end: 15, progress: 0, risks: "Niedostępność biznesu do testów UAT.", deps: "t8" },
+                            { id: "t10", name: "Go-Live Preparation", start: 15, end: 16, progress: 0, risks: "", deps: "t9" }
+                        ]
+                    }
+                ]
+            }
+        ];
+
+        // Globalna, płaska mapa zadań dla szybkiego dostępu (O(1))
+        const taskMap = {};
+        const TOTAL_WEEKS = 16;
+
+        // Główna funkcja inicjalizująca aplikację
+        function initDashboard() {
+            try {
+                const headerRow = document.getElementById('gantt-header');
+                const tbody = document.getElementById('gantt-body');
+                
+                // Generowanie nagłówków czasowych (T1 - T16)
+                for (let i = 1; i <= TOTAL_WEEKS; i++) {
+                    const th = document.createElement('th');
+                    th.innerText = 'T' + i;
+                    headerRow.appendChild(th);
+                }
+
+                // Generowanie wierszy struktury projektu
+                projectData.forEach(ws => {
+                    // Wiersz Workstream
+                    const trWs = document.createElement('tr');
+                    trWs.className = 'row-ws';
+                    const tdWs = document.createElement('td');
+                    tdWs.colSpan = TOTAL_WEEKS + 1;
+                    tdWs.innerText = ws.workstream;
+                    trWs.appendChild(tdWs);
+                    tbody.appendChild(trWs);
+
+                    ws.activities.forEach(act => {
+                        // Wiersz Activity
+                        const trAct = document.createElement('tr');
+                        trAct.className = 'row-act';
+                        const tdAct = document.createElement('td');
+                        tdAct.colSpan = TOTAL_WEEKS + 1;
+                        tdAct.innerText = act.activity;
+                        trAct.appendChild(tdAct);
+                        tbody.appendChild(trAct);
+
+                        act.tasks.forEach(task => {
+                            // Wpisz zadanie do mapy referencyjnej
+                            task.wsName = ws.workstream;
+                            task.actName = act.activity;
+                            taskMap[task.id] = task;
+
+                            // Wiersz Zadania (Task)
+                            const trTask = document.createElement('tr');
+                            trTask.className = 'row-task';
+                            trTask.setAttribute('data-id', task.id);
+
+                            // Komórka Nazwy Zadania
+                            const hasRisk = task.risks && task.risks.trim().length > 0;
+                            const badgeStyle = hasRisk ? 'has-risk' : '';
+                            
+                            const tdName = document.createElement('td');
+                            tdName.className = 'task-name-cell';
+                            tdName.innerHTML = `
+                                <div>
+                                    ${task.name} 
+                                    <span class="risk-badge ${badgeStyle}" id="badge-${task.id}">⚠️ ZAGROŻENIE</span>
+                                </div>
+                                <span class="progress-label" id="lbl-prog-${task.id}">${task.progress}%</span>
+                            `;
+                            trTask.appendChild(tdName);
+
+                            // Renderowanie Osi Czasu wykorzystując sprytny colspan
+                            for (let t = 1; t <= TOTAL_WEEKS; t++) {
+                                if (t === task.start) {
+                                    const duration = task.end - task.start + 1;
+                                    const tdGantt = document.createElement('td');
+                                    tdGantt.className = 'gantt-cell';
+                                    tdGantt.colSpan = duration;
+                                    
+                                    const barColor = task.progress === 100 ? '#10b981' : '#3b82f6';
+                                    
+                                    tdGantt.innerHTML = `
+                                        <div class="gantt-bar-wrapper">
+                                            <div class="gantt-bar-fill" id="bar-${task.id}" style="width: ${task.progress}%; background-color: ${barColor};"></div>
+                                        </div>
+                                    `;
+                                    trTask.appendChild(tdGantt);
+                                    
+                                    // Przeskocz indeks by nie generować pustych komórek pod spodem paska
+                                    t = task.end; 
+                                } else {
+                                    const tdEmpty = document.createElement('td');
+                                    tdEmpty.className = 'empty-cell';
+                                    trTask.appendChild(tdEmpty);
+                                }
+                            }
+                            
+                            tbody.appendChild(trTask);
+                        });
+                    });
+                });
+
+                attachEventListeners();
+
+            } catch (err) {
+                // Wypisanie krytycznych błędów budowy DOM
+                const errBox = document.getElementById('error-container');
+                errBox.style.display = 'block';
+                errBox.innerText = "Krytyczny błąd podczas budowy wykresu:\n\n" + err.stack;
+            }
+        }
+
+        function attachEventListeners() {
+            // Bezpieczny Event Listener dla całej tabeli (Delegacja Zdarzeń)
+            document.getElementById('gantt-body').addEventListener('click', function(e) {
+                const row = e.target.closest('.row-task');
+                if (row) {
+                    const taskId = row.getAttribute('data-id');
+                    openPanel(taskId);
+                }
+            });
+
+            // Obsługa paska postępu w panelu
+            document.getElementById('task-progress-input').addEventListener('input', function(e) {
+                document.getElementById('task-progress-value').innerText = e.target.value + '%';
+                // Dynamiczna zmiana koloru tekstu dla postępu
+                if(e.target.value === '100') {
+                    document.getElementById('task-progress-value').style.color = '#10b981';
+                } else {
+                    document.getElementById('task-progress-value').style.color = '#3b82f6';
+                }
+            });
+
+            // Zamykanie Panelu
+            const closeMethods = ['btn-close-header', 'btn-cancel', 'panel-overlay'];
+            closeMethods.forEach(id => {
+                document.getElementById(id).addEventListener('click', closePanel);
+            });
+
+            // Zapis Zadania
+            document.getElementById('btn-save').addEventListener('click', saveTaskData);
+
+            // Eksport CSV
+            document.getElementById('btn-export').addEventListener('click', exportToCSV);
+        }
+
+        function openPanel(taskId) {
+            const task = taskMap[taskId];
+            if (!task) return;
+
+            document.getElementById('task-id-input').value = taskId;
+            document.getElementById('task-name-display').innerText = task.name;
+            document.getElementById('task-progress-input').value = task.progress;
+            
+            const progressValueEl = document.getElementById('task-progress-value');
+            progressValueEl.innerText = task.progress + '%';
+            progressValueEl.style.color = task.progress === 100 ? '#10b981' : '#3b82f6';
+            
+            document.getElementById('task-risks-input').value = task.risks || "";
+            document.getElementById('task-deps-input').value = task.deps || "";
+
+            // Otwórz panel
+            document.getElementById('panel-overlay').classList.add('show');
+            setTimeout(() => {
+                document.getElementById('side-panel').classList.add('open');
+            }, 10);
+        }
+
+        function closePanel() {
+            document.getElementById('side-panel').classList.remove('open');
+            setTimeout(() => {
+                document.getElementById('panel-overlay').classList.remove('show');
+            }, 300);
+        }
+
+        function saveTaskData() {
+            const taskId = document.getElementById('task-id-input').value;
+            const task = taskMap[taskId];
+            
+            if (task) {
+                // Odczytaj z formularza
+                task.progress = parseInt(document.getElementById('task-progress-input').value, 10);
+                task.risks = document.getElementById('task-risks-input').value;
+                task.deps = document.getElementById('task-deps-input').value;
+                
+                // 1. Zaktualizuj Etykietę Postępu
+                const labelEl = document.getElementById(`lbl-prog-${taskId}`);
+                labelEl.innerText = task.progress + '%';
+                labelEl.style.color = task.progress === 100 ? '#10b981' : '#3b82f6';
+
+                // 2. Zaktualizuj Pasek Gantta
+                const barEl = document.getElementById(`bar-${taskId}`);
+                barEl.style.width = task.progress + '%';
+                barEl.style.backgroundColor = task.progress === 100 ? '#10b981' : '#3b82f6';
+                
+                // 3. Zaktualizuj Znaczek Ryzyka
+                const badgeEl = document.getElementById(`badge-${taskId}`);
+                if (task.risks.trim().length > 0) {
+                    badgeEl.classList.add('has-risk');
+                } else {
+                    badgeEl.classList.remove('has-risk');
+                }
+
+                closePanel();
+                showToast();
+            }
+        }
+
+        function showToast() {
+            const toast = document.getElementById('toast-msg');
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        function exportToCSV() {
+            // Używamy BOM (Byte Order Mark) dla obsługi polskich znaków w Excelu
+            const BOM = "\uFEFF";
+            let csvContent = BOM + "Workstream,Activity,Task,Start (T),End (T),Progress (%),Risks,Dependencies\n";
+            
+            Object.values(taskMap).forEach(task => {
+                // Bezpieczne uciekanie (escaping) znaków cudzysłowu by uniknąć złamania wierszy w CSV
+                const safeVal = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
+                
+                const row = [
+                    safeVal(task.wsName),
+                    safeVal(task.actName),
+                    safeVal(task.name),
+                    `T${task.start}`,
+                    `T${task.end}`,
+                    task.progress,
+                    safeVal(task.risks),
+                    safeVal(task.deps)
+                ];
+                
+                csvContent += row.join(",") + "\n";
+            });
+
+            // Tworzenie ukrytego linku do pobrania pliku
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            
+            link.setAttribute("href", url);
+            link.setAttribute("download", "Live_Replatforming_Plan_Export.csv");
+            link.style.visibility = 'hidden';
+            
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Zapewnienie, że skrypt wykona się DOPIERO gdy cały HTML zostanie bezpiecznie wyrenderowany
+        document.addEventListener('DOMContentLoaded', initDashboard);
+
+    </script>
 </body>
 </html>
